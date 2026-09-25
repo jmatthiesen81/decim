@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -96,9 +97,22 @@ func testConfig(t *testing.T) config {
 	return config{
 		sourceFolder: "INBOX", spamFolder: "Junk", cleanFolder: "Clean", unsureFolder: "Unsure",
 		spamThreshold: 5, requireDMARC: true, rules: rules,
-		whitelist: addressList{"friend@example.com": {}, "both@example.com": {}},
-		blacklist: addressList{"bad@spam.example": {}, "both@example.com": {}},
+		whitelist: testAddressList(t, "friend@example.com", "both@example.com"),
+		blacklist: testAddressList(t, "bad@spam.example", "both@example.com", "%@blocked.example"),
 	}
+}
+
+func testAddressList(t *testing.T, addresses ...string) addressList {
+	t.Helper()
+	content, err := json.Marshal(addresses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := parseAddressList("test", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return list
 }
 
 func TestClassify(t *testing.T) {
@@ -107,22 +121,25 @@ func TestClassify(t *testing.T) {
 
 	tests := []struct {
 		name, raw, folder, reason string
+		markSpam                  bool
 	}{
-		{"whitelisted skips spam check", "From: friend@example.com\r\n" + pass + flagged, "Clean", "WHITELISTED"},
-		{"unverified whitelist falls through", "From: friend@example.com\r\n" + flagged, "Junk", "WHITELIST_UNVERIFIED"},
-		{"whitelist without DMARC reaches blacklist", "From: both@example.com\r\n", "Junk", "WHITELIST_UNVERIFIED,BLACKLISTED"},
-		{"blacklisted", "From: bad@spam.example\r\n" + pass, "Junk", "BLACKLISTED"},
-		{"rule match", "From: a@shop.example\r\nSubject: Your invoice\r\n" + pass, "Finance", `RULE:"Invoices"=6`},
-		{"rule never rescues spam", "From: a@shop.example\r\nSubject: invoice\r\n" + pass + flagged, "Junk", "UPSTREAM_SPAM_FLAG"},
-		{"partial rule is unsure", "From: a@shop.example\r\nSubject: Hello\r\n" + pass, "Unsure", `RULE_UNSURE:"Invoices"=3`},
-		{"unverified sender does not score", "From: a@shop.example\r\nSubject: invoice\r\n", "Unsure", "RULE_SENDER_UNVERIFIED"},
-		{"no rule matches", "From: x@y.example\r\nSubject: hi\r\n", "Clean", ""},
+		{"whitelisted skips spam check", "From: friend@example.com\r\n" + pass + flagged, "Clean", "WHITELISTED", false},
+		{"unverified whitelist falls through", "From: friend@example.com\r\n" + flagged, "Junk", "WHITELIST_UNVERIFIED", true},
+		{"whitelist without DMARC reaches blacklist", "From: both@example.com\r\n", "Junk", "WHITELIST_UNVERIFIED,BLACKLISTED", true},
+		{"blacklisted", "From: bad@spam.example\r\n" + pass, "Junk", "BLACKLISTED", true},
+		{"blacklisted by wildcard", "From: Anyone@Blocked.example\r\n" + pass, "Junk", "BLACKLISTED", true},
+		{"wildcard skips subdomains", "From: a@sub.blocked.example\r\n" + pass, "Clean", "", false},
+		{"rule match", "From: a@shop.example\r\nSubject: Your invoice\r\n" + pass, "Finance", `RULE:"Invoices"=6`, false},
+		{"rule never rescues spam", "From: a@shop.example\r\nSubject: invoice\r\n" + pass + flagged, "Junk", "UPSTREAM_SPAM_FLAG", true},
+		{"partial rule is unsure", "From: a@shop.example\r\nSubject: Hello\r\n" + pass, "Unsure", `RULE_UNSURE:"Invoices"=3`, false},
+		{"unverified sender does not score", "From: a@shop.example\r\nSubject: invoice\r\n", "Unsure", "RULE_SENDER_UNVERIFIED", false},
+		{"no rule matches", "From: x@y.example\r\nSubject: hi\r\n", "Clean", "", false},
 	}
 	cfg := testConfig(t)
 	for _, tt := range tests {
 		v := classify(cfg, parseHeaders(tt.raw))
-		if v.folder != tt.folder || !strings.Contains(strings.Join(v.reasons, ","), tt.reason) {
-			t.Errorf("%s: got %s %v", tt.name, v.folder, v.reasons)
+		if v.folder != tt.folder || !strings.Contains(strings.Join(v.reasons, ","), tt.reason) || v.markSpam != tt.markSpam {
+			t.Errorf("%s: got %s %v mark_spam=%t", tt.name, v.folder, v.reasons, v.markSpam)
 		}
 	}
 }
@@ -131,8 +148,8 @@ func TestClassifySpamUnsureZone(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.spamUnsureThreshold = 3
 	v := classify(cfg, parseHeaders("From: x@y.example\r\nAuthentication-Results: mx; spf=fail; dkim=fail\r\n"))
-	if v.folder != "Unsure" || v.label != "unsure" {
-		t.Errorf("got %s %s", v.folder, v.label)
+	if v.folder != "Unsure" || v.label != "unsure" || v.markSpam {
+		t.Errorf("got %s %s mark_spam=%t", v.folder, v.label, v.markSpam)
 	}
 }
 
@@ -189,7 +206,7 @@ func TestSenderVerified(t *testing.T) {
 func TestClassifyWithDKIMOnlyServer(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.authservID = "mail.netinventors.de"
-	cfg.whitelist = addressList{"no-reply@shopware.com": {}}
+	cfg.whitelist = testAddressList(t, "no-reply@shopware.com")
 
 	v := classify(cfg, parseHeaders("From: shopware AG <no-reply@shopware.com>\r\n"+dkimOnlyHeader+"X-Spam-Flag: YES\r\nX-Spam-Status: Yes\r\n\r\n"))
 	if v.folder != "Clean" || v.reasons[0] != "WHITELISTED" {

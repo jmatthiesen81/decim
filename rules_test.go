@@ -146,16 +146,29 @@ func TestExampleFilesAreValid(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if list, err := parseAddressList(name, content); err != nil || len(list) == 0 {
+		if list, err := parseAddressList(name, content); err != nil || list.len() == 0 {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
 }
 
 func TestParseAddressList(t *testing.T) {
-	list, err := parseAddressList("test", []byte(`[" Alice@Example.com ", ""]`))
-	if err != nil || !list.contains("alice@example.com") || len(list) != 1 {
-		t.Errorf("list = %v, err = %v", list, err)
+	list, err := parseAddressList("test", []byte(`[" Alice@Example.com ", "", "%@Spam.example", "offers-*@shop.example"]`))
+	if err != nil || list.len() != 3 {
+		t.Fatalf("list = %v, err = %v", list, err)
+	}
+	for address, want := range map[string]bool{
+		"alice@example.com":          true,
+		"bob@example.com":            false,
+		"x@spam.example":             true,
+		"x@sub.spam.example":         false,
+		"offers-weekly@shop.example": true,
+		"orders@shop.example":        false,
+		"":                           false,
+	} {
+		if got := list.contains(address); got != want {
+			t.Errorf("contains(%q) = %t, want %t", address, got, want)
+		}
 	}
 	if _, err := parseAddressList("test", []byte("alice@example.com")); err == nil || !strings.Contains(err.Error(), "JSON array") {
 		t.Errorf("want JSON error, got %v", err)

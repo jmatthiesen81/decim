@@ -208,3 +208,17 @@ func TestParseListResponse(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyUID(t *testing.T) {
+	cases := map[string]string{
+		"* OK [COPYUID 1231948073 729 49753] Moved UIDs.": "49753",
+		"A00001 OK [COPYUID 7 5 42] Copy completed":       "42",
+		"A00001 OK [COPYUID 7 5:6 42:43] Copy completed":  "",
+		"A00001 OK Copy completed":                        "",
+	}
+	for line, want := range cases {
+		if got := copyUID([]string{line}); got != want {
+			t.Errorf("copyUID(%q) = %q, want %q", line, got, want)
+		}
+	}
+}

@@ -221,8 +221,9 @@ func run(st *state) error {
 		uids = uids[:cfg.maxPerRun]
 	}
 
+	spamMarks := map[string][]string{}
 	for _, uid := range uids {
-		result, err := processMessage(client, cfg, uid, dryRun, useMove)
+		result, err := processMessage(client, cfg, uid, dryRun, useMove, spamMarks)
 		switch result {
 		case stayed:
 			st.skip(uid)
@@ -230,12 +231,38 @@ func run(st *state) error {
 			st.markCopiedUnflagged(uid)
 		}
 		if err != nil {
+			markSpamInDestinations(client, spamMarks)
 			return err
 		}
 	}
+	markSpamInDestinations(client, spamMarks)
 
 	client.logout()
 	return nil
+}
+
+// markSpamInDestinations sets the spam keywords again on the moved copies,
+// given as destination folder -> UIDs. Some servers drop keywords when a
+// message is moved into the junk folder (e.g. a spam training hook), so
+// setting them before the move is not enough. This runs after all moves
+// because it leaves the source folder.
+func markSpamInDestinations(client *imapClient, marks map[string][]string) {
+	folders := make([]string, 0, len(marks))
+	for folder := range marks {
+		folders = append(folders, folder)
+	}
+	sort.Strings(folders)
+
+	for _, folder := range folders {
+		uids := strings.Join(marks[folder], ",")
+		if _, err := client.selectMailbox(folder); err != nil {
+			log.Printf("uids=%s in %q could not be marked as spam: %v", uids, folder, err)
+			continue
+		}
+		if err := client.setJunk(uids, true); err != nil {
+			log.Printf("uids=%s in %q could not be marked as spam: %v", uids, folder, err)
+		}
+	}
 }
 
 // checkFolders logs every destination folder that does not exist on the
@@ -313,14 +340,14 @@ func classify(cfg config, h headers) verdict {
 		notes = append(notes, "WHITELIST_UNVERIFIED")
 	}
 	if cfg.blacklist.contains(sender) {
-		return verdict{folder: cfg.spamFolder, label: "spam", reasons: append(notes, "BLACKLISTED")}
+		return verdict{folder: cfg.spamFolder, label: "spam", markSpam: true, reasons: append(notes, "BLACKLISTED")}
 	}
 
 	score, reasons := spamScore(h, auth)
 	v := verdict{spamScore: &score, reasons: append(notes, reasons...)}
 	switch {
 	case score >= cfg.spamThreshold:
-		v.folder, v.label = cfg.spamFolder, "spam"
+		v.folder, v.label, v.markSpam = cfg.spamFolder, "spam", true
 		return v
 	case cfg.spamUnsureThreshold > 0 && score >= cfg.spamUnsureThreshold:
 		v.folder, v.label = cfg.unsureFolder, "unsure"
@@ -367,8 +394,9 @@ const (
 
 // processMessage classifies a single message and moves it to the matching
 // folder. Per-message problems are logged and skipped; only errors that
-// leave the mailbox in an inconsistent state are returned.
-func processMessage(client *imapClient, cfg config, uid string, dryRun, useMove bool) (moveResult, error) {
+// leave the mailbox in an inconsistent state are returned. Moved messages
+// that must be marked as spam are added to spamMarks (folder -> new UIDs).
+func processMessage(client *imapClient, cfg config, uid string, dryRun, useMove bool, spamMarks map[string][]string) (moveResult, error) {
 	if _, err := strconv.ParseUint(uid, 10, 32); err != nil {
 		return stayed, nil // not a valid UID, never pass it to the server
 	}
@@ -390,18 +418,22 @@ func processMessage(client *imapClient, cfg config, uid string, dryRun, useMove 
 	if dryRun {
 		return stayed, nil
 	}
-	return moveMessage(client, uid, v.folder, useMove, v.markRead, v.markSpam)
+	result, newUID, err := moveMessage(client, uid, v.folder, useMove, v.markRead, v.markSpam)
+	if result != stayed && v.markSpam && newUID != "" {
+		spamMarks[v.folder] = append(spamMarks[v.folder], newUID)
+	}
+	return result, err
 }
 
 // moveMessage moves a message to folder, atomically with MOVE if available,
 // otherwise by copy, flag and UID EXPUNGE. With markRead and markSpam,
 // \Seen and the spam keywords are set first so that the moved message
-// carries them.
-func moveMessage(client *imapClient, uid, folder string, useMove, markRead, markSpam bool) (moveResult, error) {
+// carries them. It also returns the UID in folder if the server reports it.
+func moveMessage(client *imapClient, uid, folder string, useMove, markRead, markSpam bool) (moveResult, string, error) {
 	if markRead {
 		if err := client.setSeen(uid, true); err != nil {
 			log.Printf("uid=%s could not be marked as read, mail stays in place: %v", uid, err)
-			return stayed, nil
+			return stayed, "", nil
 		}
 	}
 	if markSpam {
@@ -409,24 +441,25 @@ func moveMessage(client *imapClient, uid, folder string, useMove, markRead, mark
 			log.Printf("uid=%s could not be marked as spam, mail stays in place: %v", uid, err)
 			unmarkSpam(client, uid, true)
 			unmarkRead(client, uid, markRead)
-			return stayed, nil
+			return stayed, "", nil
 		}
 	}
 
-	action, err := "move", error(nil)
+	action, newUID, err := "move", "", error(nil)
 	if useMove {
-		err = client.move(uid, folder)
+		newUID, err = client.move(uid, folder)
 	} else {
-		action, err = "copy", client.copy(uid, folder)
+		action = "copy"
+		newUID, err = client.copy(uid, folder)
 	}
 	if err != nil {
 		log.Printf("uid=%s %s to %q failed, mail stays in place: %v", uid, action, folder, err)
 		unmarkSpam(client, uid, markSpam)
 		unmarkRead(client, uid, markRead)
-		return stayed, nil
+		return stayed, "", nil
 	}
 	if useMove {
-		return moved, nil
+		return moved, newUID, nil
 	}
 
 	// A single failure is often transient, so flagging is tried twice.
@@ -436,13 +469,13 @@ func moveMessage(client *imapClient, uid, folder string, useMove, markRead, mark
 	}
 	if err != nil {
 		log.Printf("uid=%s was copied to %q but the original could not be flagged; it will not be processed again until restart, remove one of the two copies manually", uid, folder)
-		return copiedUnflagged, fmt.Errorf("copied uid %s but could not flag the original: %w", uid, err)
+		return copiedUnflagged, newUID, fmt.Errorf("copied uid %s but could not flag the original: %w", uid, err)
 	}
 
 	if err := client.expunge(uid); err != nil {
-		return moved, fmt.Errorf("UID EXPUNGE failed; uid %s is copied and flagged \\Deleted: %w", uid, err)
+		return moved, newUID, fmt.Errorf("UID EXPUNGE failed; uid %s is copied and flagged \\Deleted: %w", uid, err)
 	}
-	return moved, nil
+	return moved, newUID, nil
 }
 
 // unmarkRead removes \Seen again after a failed move, so that the message
@@ -547,7 +580,7 @@ func logSettings(cfg config, pollSeconds int) {
 		"max_per_run=%d poll_seconds=%d dry_run=%t require_dmarc=%t authserv_id=%q rules=%d whitelist=%d blacklist=%d",
 		cfg.host, cfg.port, cfg.user, cfg.sourceFolder, cfg.spamFolder, cfg.cleanFolder, cfg.unsureFolder,
 		cfg.spamThreshold, cfg.spamUnsureThreshold, cfg.maxPerRun, pollSeconds, cfg.dryRun, cfg.requireDMARC,
-		cfg.authservID, len(cfg.rules.rules), len(cfg.whitelist), len(cfg.blacklist))
+		cfg.authservID, len(cfg.rules.rules), cfg.whitelist.len(), cfg.blacklist.len())
 	if cfg.authservID == "" {
 		log.Printf("warning: AUTHSERV_ID is not set, so all Authentication-Results headers are trusted, including ones a sender could forge")
 	}

@@ -126,12 +126,12 @@ Jede ungelesene Nachricht in `SOURCE_FOLDER` wird zuerst eingestuft, nach der er
 2. Absender in `config/blacklist.json`: Spam.
 3. Sonst entscheidet die Header-Bewertung: ab `SPAM_SCORE` Spam; ab dem optionalen `SPAM_UNSURE_SCORE` unsicher; darunter sauber.
 
-Spam wird nach `TARGET_FOLDER` verschoben, unsichere Nachrichten nach `UNSURE_FOLDER`. Saubere Nachrichten werden über die Regeln in `config/mapping.json` einsortiert (siehe Mapping-Regeln), sonst landen sie in `CLEAN_FOLDER`. Die Regeln retten also nie Spam.
+Spam wird mit denselben Schlüsselwörtern wie bei `mark_as_spam` markiert (siehe Mapping-Regeln) und nach `TARGET_FOLDER` verschoben, unsichere Nachrichten nach `UNSURE_FOLDER`. Saubere Nachrichten werden über die Regeln in `config/mapping.json` einsortiert (siehe Mapping-Regeln), sonst landen sie in `CLEAN_FOLDER`. Die Regeln retten also nie Spam.
 
-Beide Listen sind JSON-Arrays mit E-Mail-Adressen und werden ohne Beachtung der Groß-/Kleinschreibung mit der Adresse im `From`-Header verglichen:
+Beide Listen sind JSON-Arrays mit E-Mail-Adressen und werden ohne Beachtung der Groß-/Kleinschreibung mit der Adresse im `From`-Header verglichen. Einträge dürfen wie Regelmuster die Platzhalter `*` und `%` enthalten, die beliebige Zeichen abdecken: `%@spammer.example` erfasst eine ganze Domain (aber keine Subdomains), `offers-*@shop.example` alle Adressen, die mit `offers-` beginnen:
 
 ```json
-["alice@example.com", "newsletter@example.org"]
+["alice@example.com", "newsletter@example.org", "%@spammer.example"]
 ```
 
 ### Mapping-Regeln
@@ -171,7 +171,7 @@ Die Ordnernamen in dieser README und in `mapping.example.json` trennen Ebenen mi
 - `name` ist optional und erscheint im Log, z. B. `RULE:"Invoices"=6` oder `RULE_UNSURE:"Invoices"=3`. Regeln ohne Namen erscheinen nach ihrer Position als `rule 1`, `rule 2` usw.
 - `trust_unverified_from` ist optional (Standard `false`). Mit `true` zählen die `from`-Bedingungen der Regel auch bei nicht bestätigten Absendern (siehe Absenderprüfung).
 - `mark_as_read` ist optional (Standard `false`). Mit `true` werden Nachrichten, die diese Regel verschiebt, als gelesen markiert. Das gilt nur, wenn die Regel `threshold` erreicht; Nachrichten für `UNSURE_FOLDER` bleiben ungelesen. Schlägt das Verschieben fehl, wird die Nachricht wieder als ungelesen markiert, damit sie erneut versucht wird.
-- `mark_as_spam` ist optional (Standard `false`). Mit `true` werden Nachrichten, die diese Regel verschiebt, als Spam markiert: Sie erhalten die Schlüsselwörter `$Junk` (RFC 5788) und `Junk` (Thunderbird), `$NotJunk` und `NonJunk` werden entfernt. Wie `mark_as_read` gilt das nur, wenn die Regel `threshold` erreicht. Lassen sich die Schlüsselwörter nicht setzen, bleibt die Nachricht liegen; schlägt das Verschieben fehl, werden `$Junk` und `Junk` wieder entfernt, damit sie erneut versucht wird. Der Server muss eigene Schlüsselwörter erlauben (`\*` in `PERMANENTFLAGS`), sonst verwirft er sie womöglich stillschweigend.
+- `mark_as_spam` ist optional (Standard `false`). Mit `true` werden Nachrichten, die diese Regel verschiebt, als Spam markiert: Sie erhalten die Schlüsselwörter `$Junk` (RFC 5788) und `Junk` (Thunderbird), `$NotJunk` und `NonJunk` werden entfernt. Wie `mark_as_read` gilt das nur, wenn die Regel `threshold` erreicht. Lassen sich die Schlüsselwörter nicht setzen, bleibt die Nachricht liegen; schlägt das Verschieben fehl, werden `$Junk` und `Junk` wieder entfernt, damit sie erneut versucht wird. Der Server muss eigene Schlüsselwörter erlauben (`\*` in `PERMANENTFLAGS`), sonst verwirft er sie womöglich stillschweigend. Manche Server entfernen Schlüsselwörter außerdem beim Verschieben in den Spam-Ordner (z. B. durch einen Spam-Trainings-Hook), deshalb werden sie am Ende jedes Durchlaufs auf den verschobenen Kopien erneut gesetzt, sofern der Server deren neue UID meldet (`COPYUID`, UIDPLUS). Als Spam eingestufte Nachrichten (Blacklist oder Header-Bewertung) erhalten diese Schlüsselwörter immer, auch ohne Regel.
 
 Jede Regel braucht einen `folder` und mindestens eine Bedingung, jede Bedingung ein `field` und ein `pattern`. Die Ordner der Regeln müssen bereits existieren und dürfen nicht `SOURCE_FOLDER` sein. Unbekannte Schlüssel (etwa Tippfehler) werden abgelehnt, ebenso das alte Format `{"adresse": "ordner"}`.
 

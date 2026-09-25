@@ -88,39 +88,47 @@ func (c *imapClient) writeLine(line string) error {
 
 // command sends a tagged command and returns its untagged responses.
 func (c *imapClient) command(cmd string) ([]string, error) {
+	responses, _, err := c.commandStatus(cmd)
+	return responses, err
+}
+
+// commandStatus is command, but also returns the tagged completion line,
+// which may carry a response code such as COPYUID.
+func (c *imapClient) commandStatus(cmd string) ([]string, string, error) {
 	c.extendDeadline()
 	tag := c.nextTag()
 	if err := c.writeLine(tag + " " + cmd); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	return c.readResponse(tag)
 }
 
 // readResponse collects all untagged response lines until the tagged
-// completion for tag. Literals ({n}) are read and appended as a separate entry.
-func (c *imapClient) readResponse(tag string) ([]string, error) {
+// completion for tag, which it returns separately. Literals ({n}) are read
+// and appended as a separate entry.
+func (c *imapClient) readResponse(tag string) ([]string, string, error) {
 	var responses []string
 	for {
 		line, err := c.readLine()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		if strings.HasPrefix(line, tag+" ") {
 			if !strings.HasPrefix(line, tag+" OK") {
-				return responses, fmt.Errorf("IMAP command failed: %s", line)
+				return responses, line, fmt.Errorf("IMAP command failed: %s", line)
 			}
-			return responses, nil
+			return responses, line, nil
 		}
 		responses = append(responses, line)
 
 		if size, ok := literalSize(line); ok {
 			if size < 0 || size > maxLiteralSize {
-				return nil, errors.New("invalid or oversized literal")
+				return nil, "", errors.New("invalid or oversized literal")
 			}
 			literal := make([]byte, size)
 			if _, err := io.ReadFull(c.reader, literal); err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			responses = append(responses, string(literal))
 		}
@@ -170,7 +178,7 @@ func (c *imapClient) authenticatePlain(user, password string) error {
 	}
 
 	// Servers may send untagged lines (e.g. CAPABILITY) before the result.
-	if _, err := c.readResponse(tag); err != nil {
+	if _, _, err := c.readResponse(tag); err != nil {
 		return errors.New("IMAP authentication failed")
 	}
 	return nil
@@ -344,15 +352,45 @@ func (c *imapClient) fetchHeader(uid string) (string, error) {
 	return "", nil
 }
 
-// move moves a message atomically (requires MOVE, RFC 6851).
-func (c *imapClient) move(uid, mailbox string) error {
-	_, err := c.command("UID MOVE " + uid + " " + quote(encodeMailbox(mailbox)))
-	return err
+// move moves a message atomically (requires MOVE, RFC 6851) and returns its
+// UID in the destination folder ("" if the server does not report it).
+func (c *imapClient) move(uid, mailbox string) (string, error) {
+	return c.transfer("UID MOVE", uid, mailbox)
 }
 
-func (c *imapClient) copy(uid, mailbox string) error {
-	_, err := c.command("UID COPY " + uid + " " + quote(encodeMailbox(mailbox)))
-	return err
+// copy copies a message and returns the UID of the copy ("" if the server
+// does not report it).
+func (c *imapClient) copy(uid, mailbox string) (string, error) {
+	return c.transfer("UID COPY", uid, mailbox)
+}
+
+func (c *imapClient) transfer(cmd, uid, mailbox string) (string, error) {
+	responses, status, err := c.commandStatus(cmd + " " + uid + " " + quote(encodeMailbox(mailbox)))
+	if err != nil {
+		return "", err
+	}
+	return copyUID(append(responses, status)), nil
+}
+
+// copyUID returns the destination UID from the COPYUID response code
+// (UIDPLUS, RFC 4315) of a single-message COPY or MOVE, or "" if there is
+// none. MOVE sends it in an untagged OK, COPY in the tagged completion.
+func copyUID(lines []string) string {
+	for _, line := range lines {
+		_, rest, ok := strings.Cut(line, "[COPYUID ")
+		if !ok {
+			continue
+		}
+		code, _, _ := strings.Cut(rest, "]")
+		fields := strings.Fields(code)
+		if len(fields) != 3 {
+			continue
+		}
+		if _, err := strconv.ParseUint(fields[2], 10, 32); err == nil {
+			return fields[2]
+		}
+	}
+	return ""
 }
 
 func (c *imapClient) markDeleted(uid string) error {
@@ -370,7 +408,7 @@ func (c *imapClient) setSeen(uid string, seen bool) error {
 	return err
 }
 
-// setJunk marks a message as spam with the $Junk keyword (RFC 5788) and
+// setJunk marks messages (a UID or UID set) as spam with the $Junk keyword (RFC 5788) and
 // Thunderbird's Junk, and removes the opposite $NotJunk and NonJunk. With
 // junk=false it only removes $Junk and Junk again.
 func (c *imapClient) setJunk(uid string, junk bool) error {

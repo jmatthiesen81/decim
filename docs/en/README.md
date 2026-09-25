@@ -126,12 +126,12 @@ Every unseen message in `SOURCE_FOLDER` is first judged, using the first check t
 2. Sender on `config/blacklist.json`: spam.
 3. Otherwise the header score decides: at or above `SPAM_SCORE` spam; at or above the optional `SPAM_UNSURE_SCORE` unsure; below clean.
 
-Spam is moved to `TARGET_FOLDER`, unsure mail to `UNSURE_FOLDER`. Clean mail is routed by the rules in `config/mapping.json` (see Mapping rules), otherwise it goes to `CLEAN_FOLDER`. The rules therefore never rescue spam.
+Spam is marked with the same keywords as `mark_as_spam` (see Mapping rules) and moved to `TARGET_FOLDER`, unsure mail to `UNSURE_FOLDER`. Clean mail is routed by the rules in `config/mapping.json` (see Mapping rules), otherwise it goes to `CLEAN_FOLDER`. The rules therefore never rescue spam.
 
-Both lists are JSON arrays of e-mail addresses, compared case-insensitively against the address in the `From` header:
+Both lists are JSON arrays of e-mail addresses, compared case-insensitively against the address in the `From` header. Entries may contain the wildcards `*` and `%`, which match any characters, just like rule patterns: `%@spammer.example` covers a whole domain (but not subdomains), and `offers-*@shop.example` all addresses starting with `offers-`:
 
 ```json
-["alice@example.com", "newsletter@example.org"]
+["alice@example.com", "newsletter@example.org", "%@spammer.example"]
 ```
 
 ### Mapping rules
@@ -171,7 +171,7 @@ The folder names in this README and in `mapping.example.json` use `/` between le
 - `name` is optional and shows up in the log, e.g. `RULE:"Invoices"=6` or `RULE_UNSURE:"Invoices"=3`. Rules without a name are logged as `rule 1`, `rule 2` and so on, by position.
 - `trust_unverified_from` is optional (default `false`). Set it to `true` to let the rule's `from` conditions count even for unverified senders (see Sender verification).
 - `mark_as_read` is optional (default `false`). Set it to `true` to mark mail moved by this rule as read. It only applies when the rule reaches `threshold`; mail sent to `UNSURE_FOLDER` stays unread. If the move fails, the mail is marked unread again so that it is retried.
-- `mark_as_spam` is optional (default `false`). Set it to `true` to mark mail moved by this rule as spam: it gets the keywords `$Junk` (RFC 5788) and `Junk` (Thunderbird), and `$NotJunk` and `NonJunk` are removed. Like `mark_as_read`, it only applies when the rule reaches `threshold`. If the keywords cannot be set, the mail stays in place; if the move fails, `$Junk` and `Junk` are removed again so that it is retried. The server must allow custom keywords (`\*` in `PERMANENTFLAGS`), otherwise it may drop them silently.
+- `mark_as_spam` is optional (default `false`). Set it to `true` to mark mail moved by this rule as spam: it gets the keywords `$Junk` (RFC 5788) and `Junk` (Thunderbird), and `$NotJunk` and `NonJunk` are removed. Like `mark_as_read`, it only applies when the rule reaches `threshold`. If the keywords cannot be set, the mail stays in place; if the move fails, `$Junk` and `Junk` are removed again so that it is retried. The server must allow custom keywords (`\*` in `PERMANENTFLAGS`), otherwise it may drop them silently. Some servers also drop keywords when mail is moved into the spam folder (e.g. a spam training hook), so at the end of each run the keywords are set again on the moved copies, if the server reports their new UID (`COPYUID`, UIDPLUS). Mail judged as spam (blacklist or header score) always gets these keywords, without a rule.
 
 Every rule needs a `folder` and at least one condition, and every condition needs a `field` and a `pattern`. Rule folders must already exist and must not be `SOURCE_FOLDER`. Unknown keys (such as typos) are rejected, and so is the old `{"address": "folder"}` format.
 

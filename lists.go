@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/mail"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -19,29 +20,52 @@ func readConfigFile(path string) ([]byte, error) {
 	return content, err
 }
 
-// addressList is a set of lower-cased e-mail addresses.
-type addressList map[string]struct{}
+// addressList holds lower-cased e-mail addresses and wildcard patterns.
+type addressList struct {
+	exact    map[string]struct{}
+	patterns []*regexp.Regexp
+}
 
 func (l addressList) contains(address string) bool {
-	_, ok := l[address]
-	return ok
+	if address == "" {
+		return false
+	}
+	if _, ok := l.exact[address]; ok {
+		return true
+	}
+	for _, pattern := range l.patterns {
+		if pattern.MatchString(address) {
+			return true
+		}
+	}
+	return false
+}
+
+func (l addressList) len() int {
+	return len(l.exact) + len(l.patterns)
 }
 
 // parseAddressList parses a JSON array of e-mail addresses, e.g.
-// ["alice@example.com", "bob@example.org"]. Nil content yields an empty list.
+// ["alice@example.com", "%@example.org"]. Entries containing "*" or "%" are
+// wildcard patterns like in rule conditions. Nil content yields an empty list.
 func parseAddressList(path string, content []byte) (addressList, error) {
-	list := addressList{}
+	list := addressList{exact: map[string]struct{}{}}
 	if content == nil {
 		return list, nil
 	}
 
 	var addresses []string
 	if err := json.Unmarshal(content, &addresses); err != nil {
-		return nil, fmt.Errorf("%s: expected a JSON array of e-mail addresses: %w", path, err)
+		return addressList{}, fmt.Errorf("%s: expected a JSON array of e-mail addresses: %w", path, err)
 	}
 	for _, address := range addresses {
-		if address = strings.TrimSpace(address); address != "" {
-			list[strings.ToLower(address)] = struct{}{}
+		address = strings.ToLower(strings.TrimSpace(address))
+		switch {
+		case address == "":
+		case strings.ContainsAny(address, "*%"):
+			list.patterns = append(list.patterns, wildcardPattern(address))
+		default:
+			list.exact[address] = struct{}{}
 		}
 	}
 	return list, nil
