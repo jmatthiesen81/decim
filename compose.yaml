@@ -1,0 +1,7 @@
+services:
+  sorter:
+    build: .
+    restart: unless-stopped
+    env_file: ${ENV_FILE:-.env}
+    volumes:
+      - ${CONFIG_DIR:-./config}:/config:ro

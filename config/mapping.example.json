@@ -1,0 +1,36 @@
+{
+  "threshold": 5,
+  "unsure_threshold": 3,
+  "rules": [
+    {
+      "name": "Invoices",
+      "folder": "Finance/Invoices",
+      "conditions": [
+        { "field": "from", "pattern": "%@shop.example", "score": 3 },
+        { "field": "from", "pattern": "billing@provider.example", "score": 5 },
+        { "field": "subject", "pattern": "*invoice*", "score": 3 },
+        { "field": "subject", "pattern": "*rechnung*", "score": 3 },
+        { "field": "subject", "pattern": "*reminder*", "score": -2 }
+      ]
+    },
+    {
+      "name": "Work",
+      "folder": "Work",
+      "conditions": [
+        { "field": "from", "pattern": "%@example.com", "score": 5 },
+        { "field": "subject", "pattern": "[project-x]*", "score": 2 }
+      ]
+    },
+    {
+      "name": "Newsletter",
+      "folder": "Newsletter",
+      "trust_unverified_from": true,
+      "mark_as_read": true,
+      "conditions": [
+        { "field": "from", "pattern": "news@%", "score": 3 },
+        { "field": "list-unsubscribe", "pattern": "*", "score": 2 },
+        { "field": "subject", "pattern": "*newsletter*", "score": 2 }
+      ]
+    }
+  ]
+}
