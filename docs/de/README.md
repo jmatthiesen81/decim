@@ -188,7 +188,7 @@ Jede Regel braucht einen `folder` und mindestens eine Bedingung, jede Bedingung 
 - Enthält der Header ein DMARC-Ergebnis, entscheidet dieses: `dmarc=pass` ist bestätigt, alles andere nicht. DMARC pass bedeutet, dass SPF oder DKIM für die `From`-Domain erfolgreich war.
 - Enthält der Header kein DMARC-Ergebnis (Server, die nur DKIM prüfen, z. B. OpenDKIM ohne OpenDMARC), zählt ein `dkim=pass`, dessen signierende Domain `header.d` gleich der `From`-Domain ist. Beispiel: `dkim=pass … header.d=shopware.com` bestätigt `no-reply@shopware.com`. Eine Signatur für eine Subdomain (`header.d=mail.shopware.com`) oder eine andere Domain zählt nicht, und nur per SPF bestätigte Absender gelten nicht als bestätigt.
 
-Ein nicht bestätigter Whitelist-Absender wird mit `WHITELIST_UNVERIFIED` protokolliert und durchläuft Blacklist und Bewertung. Bei nicht bestätigten Absendern bringen `from`-Bedingungen keine Punkte, und eine zutreffende `from`-Bedingung wird als `RULE_SENDER_UNVERIFIED` protokolliert. Alle anderen Bedingungen zählen weiterhin. Die Blacklist benötigt keine Prüfung.
+Ein nicht bestätigter Whitelist-Absender wird mit `WHITELIST_UNVERIFIED` protokolliert und durchläuft Blacklist und Bewertung. Bei nicht bestätigten Absendern bringen `from`-Bedingungen keine Punkte, und eine zutreffende `from`-Bedingung wird als `RULE_SENDER_UNVERIFIED` protokolliert. Alle anderen Bedingungen zählen weiterhin. Solche Nachrichten landen in `UNSURE_FOLDER` (falls gesetzt) statt in `CLEAN_FOLDER`, denn sie sind entweder gefälscht oder stammen vom echten Absender mit fehlerhafter Signatur; erreichen die übrigen Bedingungen trotzdem den `threshold` einer Regel, greift die Regel wie gewohnt. Die Blacklist benötigt keine Prüfung.
 
 Eine Regel mit `"trust_unverified_from": true` wertet ihre `from`-Bedingungen ohne Prüfung. Setze das nur bei Regeln, deren Ordner nicht vertrauenswürdiger ist als der Posteingang, etwa `Trash` oder `Newsletter`. Dort kann ein gefälschter Absender höchstens seine eigene Nachricht verstecken. Bei Ordnern wie Rechnungen, Bank oder Kunden bleibt es aus, weil ein gefälschtes `From` dort eine Phishing-Nachricht glaubwürdig erscheinen ließe.
 
@@ -260,7 +260,7 @@ uid=<uid> sender=<adresse> verdict=<spam|unsure|mapped|clean> spam_score=<n> rul
 | `WHITELIST_UNVERIFIED` | Absender auf der Whitelist, aber nicht bestätigt. |
 | `RULE:"name"=n` | Regel hat `threshold` mit n Punkten erreicht. |
 | `RULE_UNSURE:"name"=n` | Beste Regel hat nur `unsure_threshold` erreicht. |
-| `RULE_SENDER_UNVERIFIED` | Eine `from`-Bedingung traf zu, zählte aber nicht (Absender nicht bestätigt). |
+| `RULE_SENDER_UNVERIFIED` | Eine `from`-Bedingung traf zu, zählte aber nicht (Absender nicht bestätigt). Nachrichten, die sonst nach `CLEAN_FOLDER` gingen, landen in `UNSURE_FOLDER`. |
 
 Weitere Log-Zeilen:
 - `warning: AUTHSERV_ID is not set …`

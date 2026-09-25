@@ -188,7 +188,7 @@ Every rule needs a `folder` and at least one condition, and every condition need
 - If the header contains a DMARC result, it decides: `dmarc=pass` is verified, anything else is not. DMARC pass means SPF or DKIM succeeded for the `From` domain.
 - If the header contains no DMARC result (servers that only run DKIM checks, e.g. OpenDKIM without OpenDMARC), a `dkim=pass` whose signing domain `header.d` equals the `From` domain counts. Example: `dkim=pass … header.d=shopware.com` verifies `no-reply@shopware.com`. A signature for a subdomain (`header.d=mail.shopware.com`) or for another domain does not count, and senders confirmed only by SPF are not verified.
 
-A whitelisted sender that is not verified is logged with `WHITELIST_UNVERIFIED` and goes through the blacklist and score checks. For unverified senders, `from` conditions add no score, and a matching `from` condition is logged as `RULE_SENDER_UNVERIFIED`. All other conditions still count. The blacklist needs no verification.
+A whitelisted sender that is not verified is logged with `WHITELIST_UNVERIFIED` and goes through the blacklist and score checks. For unverified senders, `from` conditions add no score, and a matching `from` condition is logged as `RULE_SENDER_UNVERIFIED`. All other conditions still count. Such mail goes to `UNSURE_FOLDER` (if set) instead of `CLEAN_FOLDER`, because it is either a forgery or the real sender with broken signing; if the remaining conditions still reach a rule's `threshold`, the rule applies as usual. The blacklist needs no verification.
 
 A rule with `"trust_unverified_from": true` counts its `from` conditions without verification. Use it only for rules whose folder is not more trusted than the inbox, such as `Trash` or `Newsletter`. There, a forged sender can at most hide its own mail. Leave it off for folders like invoices, banking or customers, where a forged `From` would make a phishing mail look legitimate.
 
@@ -260,7 +260,7 @@ uid=<uid> sender=<address> verdict=<spam|unsure|mapped|clean> spam_score=<n> rul
 | `WHITELIST_UNVERIFIED` | Sender on the whitelist, but not verified. |
 | `RULE:"name"=n` | Rule reached `threshold` with score n. |
 | `RULE_UNSURE:"name"=n` | Best rule only reached `unsure_threshold`. |
-| `RULE_SENDER_UNVERIFIED` | A `from` condition matched but did not count (sender not verified). |
+| `RULE_SENDER_UNVERIFIED` | A `from` condition matched but did not count (sender not verified). Mail that would otherwise go to `CLEAN_FOLDER` goes to `UNSURE_FOLDER`. |
 
 Other log lines:
 - `warning: AUTHSERV_ID is not set …`

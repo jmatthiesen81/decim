@@ -133,6 +133,7 @@ func TestClassify(t *testing.T) {
 		{"rule never rescues spam", "From: a@shop.example\r\nSubject: invoice\r\n" + pass + flagged, "Junk", "UPSTREAM_SPAM_FLAG", true},
 		{"partial rule is unsure", "From: a@shop.example\r\nSubject: Hello\r\n" + pass, "Unsure", `RULE_UNSURE:"Invoices"=3`, false},
 		{"unverified sender does not score", "From: a@shop.example\r\nSubject: invoice\r\n", "Unsure", "RULE_SENDER_UNVERIFIED", false},
+		{"unverified sender below unsure zone is unsure", "From: a@shop.example\r\nSubject: hi\r\n", "Unsure", "RULE_SENDER_UNVERIFIED", false},
 		{"no rule matches", "From: x@y.example\r\nSubject: hi\r\n", "Clean", "", false},
 	}
 	cfg := testConfig(t)
@@ -141,6 +142,27 @@ func TestClassify(t *testing.T) {
 		if v.folder != tt.folder || !strings.Contains(strings.Join(v.reasons, ","), tt.reason) || v.markSpam != tt.markSpam {
 			t.Errorf("%s: got %s %v mark_spam=%t", tt.name, v.folder, v.reasons, v.markSpam)
 		}
+	}
+}
+
+func TestClassifyUnverifiedSender(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.rules.unsureThreshold = 0
+	raw := "From: a@shop.example\r\nSubject: hi\r\n"
+	if v := classify(cfg, parseHeaders(raw)); v.folder != "Unsure" || v.label != "unsure" {
+		t.Errorf("got %s %s %v", v.folder, v.label, v.reasons)
+	}
+
+	cfg.unsureFolder = ""
+	if v := classify(cfg, parseHeaders(raw)); v.folder != "Clean" {
+		t.Errorf("without UNSURE_FOLDER: got %s %v", v.folder, v.reasons)
+	}
+
+	cfg = testConfig(t)
+	cfg.rules.threshold = 3
+	raw = "From: a@shop.example\r\nSubject: invoice\r\n"
+	if v := classify(cfg, parseHeaders(raw)); v.folder != "Finance" {
+		t.Errorf("rule reaching threshold without from: got %s %v", v.folder, v.reasons)
 	}
 }
 

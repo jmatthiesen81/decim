@@ -358,8 +358,8 @@ func classify(cfg config, h headers) verdict {
 }
 
 // routeClean sends clean mail to the folder of the best-scoring rule, to
-// UNSURE_FOLDER if that rule only reaches the unsure zone, or else to
-// CLEAN_FOLDER.
+// UNSURE_FOLDER if that rule only reaches the unsure zone or a "from"
+// condition was ignored for an unverified sender, or else to CLEAN_FOLDER.
 func routeClean(cfg config, h headers, verified bool, v verdict) verdict {
 	v.folder, v.label = cfg.cleanFolder, "clean"
 
@@ -368,7 +368,7 @@ func routeClean(cfg config, h headers, verified bool, v verdict) verdict {
 		v.reasons = append(v.reasons, "RULE_SENDER_UNVERIFIED")
 	}
 	if best == nil {
-		return v
+		return unverifiedToUnsure(cfg, v, ignoredSender)
 	}
 
 	v.rule, v.ruleScore = best.name, &score
@@ -379,6 +379,17 @@ func routeClean(cfg config, h headers, verified bool, v verdict) verdict {
 	case cfg.rules.unsureThreshold > 0 && score >= cfg.rules.unsureThreshold:
 		v.folder, v.label = cfg.unsureFolder, "unsure"
 		v.reasons = append(v.reasons, fmt.Sprintf("RULE_UNSURE:%q=%d", best.name, score))
+	}
+	return unverifiedToUnsure(cfg, v, ignoredSender)
+}
+
+// unverifiedToUnsure moves mail that would stay in CLEAN_FOLDER to
+// UNSURE_FOLDER (if set) when a "from" condition was ignored because the
+// sender is not verified: it may be the real sender with broken signing,
+// or a forgery, and either way deserves a look.
+func unverifiedToUnsure(cfg config, v verdict, ignoredSender bool) verdict {
+	if ignoredSender && v.label == "clean" && cfg.unsureFolder != "" {
+		v.folder, v.label = cfg.unsureFolder, "unsure"
 	}
 	return v
 }
