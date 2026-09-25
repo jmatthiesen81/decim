@@ -171,6 +171,7 @@ Die Ordnernamen in dieser README und in `mapping.example.json` trennen Ebenen mi
 - `name` ist optional und erscheint im Log, z. B. `RULE:"Invoices"=6` oder `RULE_UNSURE:"Invoices"=3`. Regeln ohne Namen erscheinen nach ihrer Position als `rule 1`, `rule 2` usw.
 - `trust_unverified_from` ist optional (Standard `false`). Mit `true` zählen die `from`-Bedingungen der Regel auch bei nicht bestätigten Absendern (siehe Absenderprüfung).
 - `mark_as_read` ist optional (Standard `false`). Mit `true` werden Nachrichten, die diese Regel verschiebt, als gelesen markiert. Das gilt nur, wenn die Regel `threshold` erreicht; Nachrichten für `UNSURE_FOLDER` bleiben ungelesen. Schlägt das Verschieben fehl, wird die Nachricht wieder als ungelesen markiert, damit sie erneut versucht wird.
+- `mark_as_spam` ist optional (Standard `false`). Mit `true` werden Nachrichten, die diese Regel verschiebt, als Spam markiert: Sie erhalten die Schlüsselwörter `$Junk` (RFC 5788) und `Junk` (Thunderbird), `$NotJunk` und `NonJunk` werden entfernt. Wie `mark_as_read` gilt das nur, wenn die Regel `threshold` erreicht. Lassen sich die Schlüsselwörter nicht setzen, bleibt die Nachricht liegen; schlägt das Verschieben fehl, werden `$Junk` und `Junk` wieder entfernt, damit sie erneut versucht wird. Der Server muss eigene Schlüsselwörter erlauben (`\*` in `PERMANENTFLAGS`), sonst verwirft er sie womöglich stillschweigend.
 
 Jede Regel braucht einen `folder` und mindestens eine Bedingung, jede Bedingung ein `field` und ein `pattern`. Die Ordner der Regeln müssen bereits existieren und dürfen nicht `SOURCE_FOLDER` sein. Unbekannte Schlüssel (etwa Tippfehler) werden abgelehnt, ebenso das alte Format `{"adresse": "ordner"}`.
 
@@ -244,10 +245,10 @@ Jeder Server-Befehl hat ein Zeitlimit von 30 Sekunden; ein langer Durchlauf auf 
 Beim Start zeigt eine Zeile `settings: …` die wirksame Konfiguration. Danach erzeugt jede bewertete Nachricht eine Zeile:
 
 ```
-uid=<uid> sender=<adresse> verdict=<spam|unsure|mapped|clean> spam_score=<n> rule=<"name"> rule_score=<n> reasons=<liste> folder="<ordner>" mark_read=<true|false> dry_run=<true|false>
+uid=<uid> sender=<adresse> verdict=<spam|unsure|mapped|clean> spam_score=<n> rule=<"name"> rule_score=<n> reasons=<liste> folder="<ordner>" mark_read=<true|false> mark_spam=<true|false> dry_run=<true|false>
 ```
 
-`spam_score` ist `-` bei Whitelist- und Blacklist-Absendern, weil die Spam-Prüfung für sie entfällt. `rule` und `rule_score` zeigen die Regel mit der höchsten Punktzahl, auch wenn sie unter den Schwellenwerten blieb; das hilft beim Feinabstimmen. Sie sind `-`, wenn die Regeln nicht befragt wurden (Spam, unsichere Spam-Bewertung oder keine Regeln). Leere Werte werden als `-` geschrieben.
+`spam_score` ist `-` bei Whitelist- und Blacklist-Absendern, weil die Spam-Prüfung für sie entfällt. `rule` und `rule_score` zeigen die Regel mit der höchsten Punktzahl, auch wenn sie unter den Schwellenwerten blieb; das hilft beim Feinabstimmen. Es zählen nur Regeln mit mindestens einer passenden Bedingung; eine `from`-Bedingung, die bei einem nicht verifizierten Absender ignoriert wird, zählt nicht. Sie sind `-`, wenn keine Regel passte oder die Regeln nicht befragt wurden (Spam, unsichere Spam-Bewertung oder keine Regeln). Leere Werte werden als `-` geschrieben.
 
 | Grund | Bedeutung |
 |---|---|

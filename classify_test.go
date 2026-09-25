@@ -153,7 +153,7 @@ func TestVerdictScores(t *testing.T) {
 		t.Error("spam score must be empty when the spam check is skipped")
 	}
 	clean := classify(cfg, parseHeaders("From: x@y.example\r\nSubject: hi\r\n"))
-	if clean.spamScore == nil || clean.ruleScore == nil || clean.rule != "Invoices" || *clean.ruleScore != 0 {
+	if clean.spamScore == nil || clean.ruleScore != nil || clean.rule != "" {
 		t.Errorf("unexpected scores: %+v", clean)
 	}
 }

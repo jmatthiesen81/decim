@@ -31,6 +31,14 @@
         { "field": "list-unsubscribe", "pattern": "*", "score": 2 },
         { "field": "subject", "pattern": "*newsletter*", "score": 2 }
       ]
+    },
+    {
+      "name": "Unwanted lists",
+      "folder": "Junk",
+      "mark_as_spam": true,
+      "conditions": [
+        { "field": "list-id", "pattern": "*.spam-sender.example*", "score": 5 }
+      ]
     }
   ]
 }

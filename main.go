@@ -289,6 +289,7 @@ type verdict struct {
 	ruleScore *int
 	reasons   []string
 	markRead  bool // set \Seen before moving
+	markSpam  bool // set the spam keywords before moving
 }
 
 // classify decides where a message belongs. First it is judged clean, spam
@@ -346,7 +347,7 @@ func routeClean(cfg config, h headers, verified bool, v verdict) verdict {
 	v.rule, v.ruleScore = best.name, &score
 	switch {
 	case score >= cfg.rules.threshold:
-		v.folder, v.label, v.markRead = best.folder, "mapped", best.markRead
+		v.folder, v.label, v.markRead, v.markSpam = best.folder, "mapped", best.markRead, best.markSpam
 		v.reasons = append(v.reasons, fmt.Sprintf("RULE:%q=%d", best.name, score))
 	case cfg.rules.unsureThreshold > 0 && score >= cfg.rules.unsureThreshold:
 		v.folder, v.label = cfg.unsureFolder, "unsure"
@@ -383,22 +384,31 @@ func processMessage(client *imapClient, cfg config, uid string, dryRun, useMove 
 
 	h := parseHeaders(rawHeader)
 	v := classify(cfg, h)
-	log.Printf("uid=%s sender=%s verdict=%s spam_score=%s rule=%s rule_score=%s reasons=%s folder=%q mark_read=%t dry_run=%t",
+	log.Printf("uid=%s sender=%s verdict=%s spam_score=%s rule=%s rule_score=%s reasons=%s folder=%q mark_read=%t mark_spam=%t dry_run=%t",
 		uid, orDash(senderAddress(h.get("from"))), v.label, scoreText(v.spamScore), ruleText(v.rule),
-		scoreText(v.ruleScore), orDash(strings.Join(v.reasons, ",")), v.folder, v.markRead, dryRun)
+		scoreText(v.ruleScore), orDash(strings.Join(v.reasons, ",")), v.folder, v.markRead, v.markSpam, dryRun)
 	if dryRun {
 		return stayed, nil
 	}
-	return moveMessage(client, uid, v.folder, useMove, v.markRead)
+	return moveMessage(client, uid, v.folder, useMove, v.markRead, v.markSpam)
 }
 
 // moveMessage moves a message to folder, atomically with MOVE if available,
-// otherwise by copy, flag and UID EXPUNGE. With markRead, \Seen is set
-// first so that the moved message carries it.
-func moveMessage(client *imapClient, uid, folder string, useMove, markRead bool) (moveResult, error) {
+// otherwise by copy, flag and UID EXPUNGE. With markRead and markSpam,
+// \Seen and the spam keywords are set first so that the moved message
+// carries them.
+func moveMessage(client *imapClient, uid, folder string, useMove, markRead, markSpam bool) (moveResult, error) {
 	if markRead {
 		if err := client.setSeen(uid, true); err != nil {
 			log.Printf("uid=%s could not be marked as read, mail stays in place: %v", uid, err)
+			return stayed, nil
+		}
+	}
+	if markSpam {
+		if err := client.setJunk(uid, true); err != nil {
+			log.Printf("uid=%s could not be marked as spam, mail stays in place: %v", uid, err)
+			unmarkSpam(client, uid, true)
+			unmarkRead(client, uid, markRead)
 			return stayed, nil
 		}
 	}
@@ -411,6 +421,7 @@ func moveMessage(client *imapClient, uid, folder string, useMove, markRead bool)
 	}
 	if err != nil {
 		log.Printf("uid=%s %s to %q failed, mail stays in place: %v", uid, action, folder, err)
+		unmarkSpam(client, uid, markSpam)
 		unmarkRead(client, uid, markRead)
 		return stayed, nil
 	}
@@ -442,6 +453,16 @@ func unmarkRead(client *imapClient, uid string, markRead bool) {
 	}
 	if err := client.setSeen(uid, false); err != nil {
 		log.Printf("uid=%s is marked as read but was not moved; it will not be sorted until it is marked unread: %v", uid, err)
+	}
+}
+
+// unmarkSpam removes the spam keywords again after a failed move.
+func unmarkSpam(client *imapClient, uid string, markSpam bool) {
+	if !markSpam {
+		return
+	}
+	if err := client.setJunk(uid, false); err != nil {
+		log.Printf("uid=%s is marked as spam but was not moved: %v", uid, err)
 	}
 }
 

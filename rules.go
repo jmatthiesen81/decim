@@ -28,6 +28,7 @@ type rule struct {
 	// senders, for rules whose folder is not more trusted (e.g. Trash).
 	trustUnverifiedFrom bool
 	markRead            bool // set \Seen on mail moved by this rule
+	markSpam            bool // set the spam keywords on mail moved by this rule
 }
 
 type condition struct {
@@ -45,6 +46,7 @@ type rulesFile struct {
 		Folder              string `json:"folder"`
 		TrustUnverifiedFrom bool   `json:"trust_unverified_from"`
 		MarkAsRead          bool   `json:"mark_as_read"`
+		MarkAsSpam          bool   `json:"mark_as_spam"`
 		Conditions          []struct {
 			Field   string `json:"field"`
 			Pattern string `json:"pattern"`
@@ -81,7 +83,7 @@ func parseRules(path string, content []byte) (ruleset, error) {
 	}
 
 	for i, fileRule := range file.Rules {
-		r := rule{name: fileRule.Name, folder: fileRule.Folder, trustUnverifiedFrom: fileRule.TrustUnverifiedFrom, markRead: fileRule.MarkAsRead}
+		r := rule{name: fileRule.Name, folder: fileRule.Folder, trustUnverifiedFrom: fileRule.TrustUnverifiedFrom, markRead: fileRule.MarkAsRead, markSpam: fileRule.MarkAsSpam}
 		if r.name == "" {
 			r.name = fmt.Sprintf("rule %d", i+1)
 		}
@@ -119,7 +121,8 @@ func wildcardPattern(pattern string) *regexp.Regexp {
 }
 
 // bestMatch scores every rule against the message fields and returns the
-// highest-scoring rule (the first one on ties), or nil without rules.
+// highest-scoring rule (the first one on ties), or nil if no rule has a
+// matching condition that counts.
 // Unless senderVerified or the rule sets trustUnverifiedFrom, "from"
 // conditions do not count, since From can be forged; ignoredSender reports
 // whether that dropped a matching condition.
@@ -127,7 +130,7 @@ func (rs ruleset) bestMatch(fields map[string]string, senderVerified bool) (best
 	for i := range rs.rules {
 		r := &rs.rules[i]
 
-		score := 0
+		score, matched := 0, false
 		for _, c := range r.conditions {
 			value, ok := fields[c.field]
 			if !ok || !c.pattern.MatchString(value) {
@@ -138,9 +141,10 @@ func (rs ruleset) bestMatch(fields map[string]string, senderVerified bool) (best
 				continue
 			}
 			score += c.score
+			matched = true
 		}
 
-		if best == nil || score > bestScore {
+		if matched && (best == nil || score > bestScore) {
 			best, bestScore = r, score
 		}
 	}

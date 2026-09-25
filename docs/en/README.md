@@ -171,6 +171,7 @@ The folder names in this README and in `mapping.example.json` use `/` between le
 - `name` is optional and shows up in the log, e.g. `RULE:"Invoices"=6` or `RULE_UNSURE:"Invoices"=3`. Rules without a name are logged as `rule 1`, `rule 2` and so on, by position.
 - `trust_unverified_from` is optional (default `false`). Set it to `true` to let the rule's `from` conditions count even for unverified senders (see Sender verification).
 - `mark_as_read` is optional (default `false`). Set it to `true` to mark mail moved by this rule as read. It only applies when the rule reaches `threshold`; mail sent to `UNSURE_FOLDER` stays unread. If the move fails, the mail is marked unread again so that it is retried.
+- `mark_as_spam` is optional (default `false`). Set it to `true` to mark mail moved by this rule as spam: it gets the keywords `$Junk` (RFC 5788) and `Junk` (Thunderbird), and `$NotJunk` and `NonJunk` are removed. Like `mark_as_read`, it only applies when the rule reaches `threshold`. If the keywords cannot be set, the mail stays in place; if the move fails, `$Junk` and `Junk` are removed again so that it is retried. The server must allow custom keywords (`\*` in `PERMANENTFLAGS`), otherwise it may drop them silently.
 
 Every rule needs a `folder` and at least one condition, and every condition needs a `field` and a `pattern`. Rule folders must already exist and must not be `SOURCE_FOLDER`. Unknown keys (such as typos) are rejected, and so is the old `{"address": "folder"}` format.
 
@@ -244,10 +245,10 @@ Every server command has a 30-second timeout, so a long run on a slow server is 
 At startup, one `settings: …` line shows the effective configuration. Every evaluated message then produces one line:
 
 ```
-uid=<uid> sender=<address> verdict=<spam|unsure|mapped|clean> spam_score=<n> rule=<"name"> rule_score=<n> reasons=<list> folder="<folder>" mark_read=<true|false> dry_run=<true|false>
+uid=<uid> sender=<address> verdict=<spam|unsure|mapped|clean> spam_score=<n> rule=<"name"> rule_score=<n> reasons=<list> folder="<folder>" mark_read=<true|false> mark_spam=<true|false> dry_run=<true|false>
 ```
 
-`spam_score` is `-` for whitelisted and blacklisted mail, because the spam check is skipped for those. `rule` and `rule_score` show the best-scoring rule even if it stayed below the thresholds, which helps with tuning. They are `-` when the rules were not consulted (spam, unsure spam score, or no rules). Empty values are written as `-`.
+`spam_score` is `-` for whitelisted and blacklisted mail, because the spam check is skipped for those. `rule` and `rule_score` show the best-scoring rule even if it stayed below the thresholds, which helps with tuning. Only rules with at least one matching condition count; a `from` condition ignored for an unverified sender does not. They are `-` when no rule matched or the rules were not consulted (spam, unsure spam score, or no rules). Empty values are written as `-`.
 
 | Reason | Meaning |
 |---|---|

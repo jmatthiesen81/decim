@@ -370,6 +370,21 @@ func (c *imapClient) setSeen(uid string, seen bool) error {
 	return err
 }
 
+// setJunk marks a message as spam with the $Junk keyword (RFC 5788) and
+// Thunderbird's Junk, and removes the opposite $NotJunk and NonJunk. With
+// junk=false it only removes $Junk and Junk again.
+func (c *imapClient) setJunk(uid string, junk bool) error {
+	if !junk {
+		_, err := c.command("UID STORE " + uid + " -FLAGS.SILENT ($Junk Junk)")
+		return err
+	}
+	if _, err := c.command("UID STORE " + uid + " +FLAGS.SILENT ($Junk Junk)"); err != nil {
+		return err
+	}
+	_, err := c.command("UID STORE " + uid + " -FLAGS.SILENT ($NotJunk NonJunk)")
+	return err
+}
+
 // expunge removes only the given UID (requires UIDPLUS), leaving other
 // messages flagged \Deleted untouched.
 func (c *imapClient) expunge(uid string) error {

@@ -231,7 +231,7 @@ func commandServer(fetchHeader string, fail ...string) func(string) (string, str
 
 func TestMoveMessageUsesMove(t *testing.T) {
 	client, server, _ := startFakeServer(t, "* OK ready", commandServer(""))
-	result, err := moveMessage(client, "5", "Work", true, false)
+	result, err := moveMessage(client, "5", "Work", true, false, false)
 	if result != moved || err != nil {
 		t.Fatalf("result=%d err=%v", result, err)
 	}
@@ -242,7 +242,7 @@ func TestMoveMessageUsesMove(t *testing.T) {
 
 func TestMoveMessageCopyFallback(t *testing.T) {
 	client, server, _ := startFakeServer(t, "* OK ready", commandServer(""))
-	if result, err := moveMessage(client, "5", "Work", false, false); result != moved || err != nil {
+	if result, err := moveMessage(client, "5", "Work", false, false, false); result != moved || err != nil {
 		t.Fatalf("result=%d err=%v", result, err)
 	}
 	want := `UID COPY 5 "Work"|UID STORE 5 +FLAGS.SILENT (\Deleted)|UID EXPUNGE 5`
@@ -253,7 +253,7 @@ func TestMoveMessageCopyFallback(t *testing.T) {
 
 func TestMoveMessageMarkRead(t *testing.T) {
 	client, server, _ := startFakeServer(t, "* OK ready", commandServer(""))
-	if result, err := moveMessage(client, "5", "Work", true, true); result != moved || err != nil {
+	if result, err := moveMessage(client, "5", "Work", true, true, false); result != moved || err != nil {
 		t.Fatalf("result=%d err=%v", result, err)
 	}
 	want := `UID STORE 5 +FLAGS.SILENT (\Seen)|UID MOVE 5 "Work"`
@@ -263,7 +263,7 @@ func TestMoveMessageMarkRead(t *testing.T) {
 
 	// A failed move must leave the mail unread, so it is retried.
 	client, server, _ = startFakeServer(t, "* OK ready", commandServer("", "UID MOVE"))
-	if result, err := moveMessage(client, "5", "Missing", true, true); result != stayed || err != nil {
+	if result, err := moveMessage(client, "5", "Missing", true, true, false); result != stayed || err != nil {
 		t.Fatalf("move failure: result=%d err=%v", result, err)
 	}
 	want = `UID STORE 5 +FLAGS.SILENT (\Seen)|UID MOVE 5 "Missing"|UID STORE 5 -FLAGS.SILENT (\Seen)`
@@ -273,7 +273,7 @@ func TestMoveMessageMarkRead(t *testing.T) {
 
 	// If \Seen cannot be set, the mail is not moved.
 	client, server, _ = startFakeServer(t, "* OK ready", commandServer("", "UID STORE"))
-	if result, err := moveMessage(client, "5", "Work", true, true); result != stayed || err != nil {
+	if result, err := moveMessage(client, "5", "Work", true, true, false); result != stayed || err != nil {
 		t.Fatalf("store failure: result=%d err=%v", result, err)
 	}
 	if len(server.recorded()) != 1 {
@@ -281,9 +281,42 @@ func TestMoveMessageMarkRead(t *testing.T) {
 	}
 }
 
+func TestMoveMessageMarkSpam(t *testing.T) {
+	client, server, _ := startFakeServer(t, "* OK ready", commandServer(""))
+	if result, err := moveMessage(client, "5", "Junk", true, true, true); result != moved || err != nil {
+		t.Fatalf("result=%d err=%v", result, err)
+	}
+	want := `UID STORE 5 +FLAGS.SILENT (\Seen)|UID STORE 5 +FLAGS.SILENT ($Junk Junk)|UID STORE 5 -FLAGS.SILENT ($NotJunk NonJunk)|UID MOVE 5 "Junk"`
+	if got := strings.Join(server.recorded(), "|"); got != want {
+		t.Errorf("commands = %q", got)
+	}
+
+	// A failed move must undo both marks, so the mail is retried unchanged.
+	client, server, _ = startFakeServer(t, "* OK ready", commandServer("", "UID MOVE"))
+	if result, err := moveMessage(client, "5", "Missing", true, true, true); result != stayed || err != nil {
+		t.Fatalf("move failure: result=%d err=%v", result, err)
+	}
+	want = `UID STORE 5 +FLAGS.SILENT (\Seen)|UID STORE 5 +FLAGS.SILENT ($Junk Junk)|UID STORE 5 -FLAGS.SILENT ($NotJunk NonJunk)|UID MOVE 5 "Missing"|` +
+		`UID STORE 5 -FLAGS.SILENT ($Junk Junk)|UID STORE 5 -FLAGS.SILENT (\Seen)`
+	if got := strings.Join(server.recorded(), "|"); got != want {
+		t.Errorf("commands = %q", got)
+	}
+
+	// If the spam keywords cannot be set, the mail is not moved.
+	client, server, _ = startFakeServer(t, "* OK ready", commandServer("", "UID STORE 5 +FLAGS.SILENT ($Junk"))
+	if result, err := moveMessage(client, "5", "Junk", true, false, true); result != stayed || err != nil {
+		t.Fatalf("store failure: result=%d err=%v", result, err)
+	}
+	for _, cmd := range server.recorded() {
+		if strings.HasPrefix(cmd, "UID MOVE") {
+			t.Errorf("must not move after a failed STORE, got %q", server.recorded())
+		}
+	}
+}
+
 func TestMoveMessageFailures(t *testing.T) {
 	client, server, _ := startFakeServer(t, "* OK ready", commandServer("", "UID COPY"))
-	if result, err := moveMessage(client, "5", "Missing", false, false); result != stayed || err != nil {
+	if result, err := moveMessage(client, "5", "Missing", false, false, false); result != stayed || err != nil {
 		t.Errorf("copy failure: result=%d err=%v", result, err)
 	}
 	if len(server.recorded()) != 1 {
@@ -291,7 +324,7 @@ func TestMoveMessageFailures(t *testing.T) {
 	}
 
 	client, _, _ = startFakeServer(t, "* OK ready", commandServer("", "UID EXPUNGE"))
-	if result, err := moveMessage(client, "5", "Work", false, false); result != moved || err == nil {
+	if result, err := moveMessage(client, "5", "Work", false, false, false); result != moved || err == nil {
 		t.Errorf("expunge failure: result=%d err=%v (want moved and error)", result, err)
 	}
 }
@@ -302,7 +335,7 @@ func TestMoveMessageFlagFailure(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	client, server, _ := startFakeServer(t, "* OK ready", commandServer("", "UID STORE"))
-	result, err := moveMessage(client, "5", "Work", false, false)
+	result, err := moveMessage(client, "5", "Work", false, false, false)
 	if result != copiedUnflagged || err == nil {
 		t.Fatalf("result=%d err=%v (want copiedUnflagged and error)", result, err)
 	}
@@ -324,7 +357,7 @@ func TestMoveMessageFlagRetrySucceeds(t *testing.T) {
 		}
 		return "", "OK"
 	})
-	if result, err := moveMessage(client, "5", "Work", false, false); result != moved || err != nil {
+	if result, err := moveMessage(client, "5", "Work", false, false, false); result != moved || err != nil {
 		t.Fatalf("result=%d err=%v", result, err)
 	}
 	if got := server.recorded(); len(got) != 4 || got[3] != "UID EXPUNGE 5" {
@@ -347,7 +380,7 @@ func TestProcessMessageDryRun(t *testing.T) {
 	if len(server.recorded()) != 1 {
 		t.Errorf("dry run must only fetch, got %q", server.recorded())
 	}
-	want := `uid=5 sender=x@y.example verdict=clean spam_score=0 rule="Invoices" rule_score=0 reasons=- folder="Clean" mark_read=false dry_run=true`
+	want := `uid=5 sender=x@y.example verdict=clean spam_score=0 rule=- rule_score=- reasons=- folder="Clean" mark_read=false mark_spam=false dry_run=true`
 	if !strings.Contains(logs.String(), want) {
 		t.Errorf("log = %q", logs.String())
 	}

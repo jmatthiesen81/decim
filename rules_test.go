@@ -79,11 +79,15 @@ func TestBestMatch(t *testing.T) {
 	}
 
 	fields := map[string]string{"subject": "none", "from": "a@c.example"}
-	if best, _, ignored := rs.bestMatch(fields, false); best.name == "sender" || !ignored {
+	if best, _, ignored := rs.bestMatch(fields, false); best != nil || !ignored {
 		t.Error("unverified from condition must not count")
 	}
 	if best, score, _ := rs.bestMatch(fields, true); best.name != "sender" || score != 9 {
 		t.Errorf("verified sender: got %s %d", best.name, score)
+	}
+
+	if best, _, _ := rs.bestMatch(map[string]string{"subject": "none"}, true); best != nil {
+		t.Errorf("no matching condition must yield no rule, got %s", best.name)
 	}
 
 	fields = map[string]string{"subject": "none", "from": "a@d.example"}
@@ -102,6 +106,19 @@ func TestParseRulesMarkAsRead(t *testing.T) {
 	}
 	if !rs.rules[0].markRead || rs.rules[1].markRead {
 		t.Errorf("markRead = %v, %v (want true, false by default)", rs.rules[0].markRead, rs.rules[1].markRead)
+	}
+}
+
+func TestParseRulesMarkAsSpam(t *testing.T) {
+	rs, err := parseRules("test", []byte(`{"rules": [
+		{"folder": "A", "mark_as_spam": true, "conditions": [{"field": "list-id", "pattern": "*", "score": 5}]},
+		{"folder": "B", "conditions": [{"field": "subject", "pattern": "*", "score": 5}]}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rs.rules[0].markSpam || rs.rules[1].markSpam {
+		t.Errorf("markSpam = %v, %v (want true, false by default)", rs.rules[0].markSpam, rs.rules[1].markSpam)
 	}
 }
 
