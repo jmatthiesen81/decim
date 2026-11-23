@@ -1,3 +1,7 @@
 .env
 .env.*
 !.env.example
+
+# Personal config; templates are config/*.example.json
+/config/*.json
+!/config/*.example.json

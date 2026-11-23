@@ -114,7 +114,7 @@ Switches accept `true`/`false`, `t`/`f` and `1`/`0`, in any case (e.g. `TRUE` or
 
 ## Classification
 
-The spam score is deliberately conservative. DMARC fail scores 4, SPF fail 2, DKIM fail 1, a different Reply-To domain 1, and an upstream `X-Spam-Flag` or `X-Spam-Status` containing "yes" 5 each. DMARC pass subtracts 2. At the default threshold of 5, a message needs several signals to count as spam, e.g. DMARC fail plus DKIM fail, or an upstream spam flag without DMARC pass. With DMARC pass, an upstream spam flag alone scores only 3 and is not spam.
+The spam score is deliberately conservative. DMARC fail scores 4, SPF fail 2, DKIM fail 1, a different Reply-To domain 1, and an upstream `X-Spam-Flag` or `X-Spam-Status` whose value starts with "yes" 5 each (test names after it, such as `BAYES_00`, are ignored). DMARC pass subtracts 2. At the default threshold of 5, a message needs several signals to count as spam, e.g. DMARC fail plus DKIM fail, or an upstream spam flag without DMARC pass. With DMARC pass, an upstream spam flag alone scores only 3 and is not spam.
 
 The spam score ignores the subject (only the mapping rules use it). SPF, DKIM and DMARC results are taken from the `Authentication-Results` headers already present in the mail; set `AUTHSERV_ID` so that only your own server's results count (see Sender verification). No model training or LLM is included yet.
 
@@ -133,6 +133,8 @@ Both lists are JSON arrays of e-mail addresses, compared case-insensitively agai
 ```json
 ["alice@example.com", "newsletter@example.org", "%@spammer.example"]
 ```
+
+Use domain wildcards in the whitelist only for domains whose addresses you trust as a whole. DMARC and DKIM confirm the domain, not the person: anyone with an address at `gmail.com` passes DMARC for `gmail.com`, so `%@gmail.com` on the whitelist would let every Gmail user skip the spam check.
 
 ### Mapping rules
 

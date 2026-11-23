@@ -150,10 +150,10 @@ func spamScore(h headers, auth string) (score int, reasons []string) {
 		add(1, "REPLY_TO_DIFFERS")
 	}
 
-	if strings.Contains(strings.ToLower(h.get("x-spam-flag")), "yes") {
+	if upstreamYes(h["x-spam-flag"]) {
 		add(5, "UPSTREAM_SPAM_FLAG")
 	}
-	if strings.Contains(strings.ToLower(h.get("x-spam-status")), "yes") {
+	if upstreamYes(h["x-spam-status"]) {
 		add(5, "UPSTREAM_SPAM_STATUS")
 	}
 
@@ -161,4 +161,21 @@ func spamScore(h headers, auth string) (score int, reasons []string) {
 		score -= 2
 	}
 	return score, reasons
+}
+
+// upstreamYes reports whether one of the values of an upstream spam header
+// says "yes". Only the verdict at the start counts: SpamAssassin writes e.g.
+// "No, score=-1.9 required=5.0 tests=BAYES_00,..." into X-Spam-Status, and
+// test names such as BAYES_00 contain "yes".
+func upstreamYes(values []string) bool {
+	for _, value := range values {
+		verdict := strings.TrimSpace(value)
+		if end := strings.IndexAny(verdict, ", \t;"); end >= 0 {
+			verdict = verdict[:end]
+		}
+		if strings.EqualFold(verdict, "yes") {
+			return true
+		}
+	}
+	return false
 }

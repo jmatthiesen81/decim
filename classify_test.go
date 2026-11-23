@@ -69,6 +69,9 @@ func TestSpamScore(t *testing.T) {
 		{"From: a@x.de\r\nReply-To: b@y.de\r\nX-Spam-Flag: YES\r\n", 6, "REPLY_TO_DIFFERS,UPSTREAM_SPAM_FLAG"},
 		{"From: a@x.de\r\nX-Spam-Flag: YES\r\nAuthentication-Results: mx; dmarc=pass\r\n", 3, "UPSTREAM_SPAM_FLAG"},
 		{"From: a@x.de\r\nX-Spam-Status: Yes, score=9\r\n", 5, "UPSTREAM_SPAM_STATUS"},
+		{"From: a@x.de\r\nX-Spam-Status: No, score=-1.9 required=5.0 tests=BAYES_00,\r\n\tDKIM_SIGNED,DKIM_VALID autolearn=ham\r\n", 0, ""},
+		{"From: a@x.de\r\nX-Spam-Flag: NO\r\nX-Spam-Status: No, tests=BAYES_99 YES\r\n", 0, ""},
+		{"From: a@x.de\r\nX-Spam-Flag: yes\r\n", 5, "UPSTREAM_SPAM_FLAG"},
 	}
 	for _, tt := range tests {
 		h := parseHeaders(tt.raw)

@@ -114,7 +114,7 @@ Schalter akzeptieren `true`/`false`, `t`/`f` und `1`/`0` in beliebiger Schreibwe
 
 ## Klassifizierung
 
-Die Spam-Bewertung ist bewusst zurückhaltend. DMARC fail ergibt 4 Punkte, SPF fail 2, DKIM fail 1, eine abweichende Reply-To-Domain 1 und ein vorgelagertes `X-Spam-Flag` oder `X-Spam-Status` mit „yes“ jeweils 5. DMARC pass zieht 2 Punkte ab. Beim Standard-Schwellenwert von 5 braucht eine Nachricht mehrere Signale, um als Spam zu gelten, z. B. DMARC fail plus DKIM fail oder eine vorgelagerte Spam-Markierung ohne DMARC pass. Mit DMARC pass erreicht eine vorgelagerte Spam-Markierung allein nur 3 Punkte und ist kein Spam.
+Die Spam-Bewertung ist bewusst zurückhaltend. DMARC fail ergibt 4 Punkte, SPF fail 2, DKIM fail 1, eine abweichende Reply-To-Domain 1 und ein vorgelagertes `X-Spam-Flag` oder `X-Spam-Status`, dessen Wert mit „yes“ beginnt, jeweils 5 (dahinter stehende Testnamen wie `BAYES_00` zählen nicht). DMARC pass zieht 2 Punkte ab. Beim Standard-Schwellenwert von 5 braucht eine Nachricht mehrere Signale, um als Spam zu gelten, z. B. DMARC fail plus DKIM fail oder eine vorgelagerte Spam-Markierung ohne DMARC pass. Mit DMARC pass erreicht eine vorgelagerte Spam-Markierung allein nur 3 Punkte und ist kein Spam.
 
 Die Spam-Bewertung ignoriert den Betreff (nur die Mapping-Regeln nutzen ihn). SPF-, DKIM- und DMARC-Ergebnisse stammen aus den `Authentication-Results`-Headern, die bereits in der Nachricht stehen; setze `AUTHSERV_ID`, damit nur die Ergebnisse deines eigenen Servers zählen (siehe Absenderprüfung). Modelltraining oder ein LLM sind noch nicht enthalten.
 
@@ -133,6 +133,8 @@ Beide Listen sind JSON-Arrays mit E-Mail-Adressen und werden ohne Beachtung der 
 ```json
 ["alice@example.com", "newsletter@example.org", "%@spammer.example"]
 ```
+
+Domain-Platzhalter gehören nur dann in die Whitelist, wenn du allen Adressen dieser Domain vertraust. DMARC und DKIM bestätigen die Domain, nicht die Person: Jeder mit einer Adresse bei `gmail.com` besteht DMARC für `gmail.com`, `%@gmail.com` in der Whitelist ließe also jeden Gmail-Nutzer an der Spam-Prüfung vorbei.
 
 ### Mapping-Regeln
 
